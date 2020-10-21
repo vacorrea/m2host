@@ -1,0 +1,207 @@
+version: '3.7' 
+services:  
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    container_name: namenode
+    volumes:
+      - ./data/namenode:/hadoop/dfs/name
+    environment:
+      - "CLUSTER_NAME=cluster_hadoop"
+      - HDFS_CONF_dfs_replication=1
+      - HDFS_CONF_dfs_permissions_enabled=false
+    env_file:
+      - ./hadoop-hive.env
+    ports:
+      - 50070:50070
+      - 8020:8020
+    healthcheck:
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    networks:
+      - network_hadoop
+  datanode1:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    container_name: datanode1
+    depends_on: 
+      - namenode
+    volumes:
+      - ./data/datanode:/hadoop/dfs/data
+    env_file:
+      - ./hadoop-hive.env
+    ports:
+      - 50010:50010
+      - 50020:50020
+      - 50075:50075
+    deploy:
+      #mode: replicated
+      #replicas: 3
+      update_config:
+        parallelism: 3
+        delay: 10s
+        # order: stop-first
+    networks:
+      - network_hadoop
+  datanode2:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    container_name: datanode2
+    depends_on: 
+      - namenode
+    volumes:
+      - ./data/datanode2:/hadoop/dfs/data
+    env_file:
+      - ./hadoop-hive.env
+    ports:
+      - 50076:50075
+    networks:
+      - network_hadoop
+  datanode3:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    container_name: datanode3
+    depends_on: 
+      - namenode
+    volumes:
+      - ./data/datanode3:/hadoop/dfs/data
+    env_file:
+      - ./hadoop-hive.env
+    ports:
+      - 50077:50075
+    networks:
+      - network_hadoop
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop2.7.4-java8
+    container_name: resourcemanager
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070 datanode1:50075 datanode2:50075 datanode3:50075"
+    env_file:
+      - ./hadoop-hive.env
+    ports:
+      - 8088:8088
+      - 8042:8042
+      - 8032:8032
+    networks:
+      - network_hadoop
+  nodemanager1:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop2.7.4-java8
+    container_name: nodemanager1
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070 datanode1:50075 resourcemanager:8088"
+    env_file:
+      - ./hadoop-hive.env
+    networks:
+      - network_hadoop
+  # nodemanager2:
+  #  image: bde2020/hadoop-nodemanager:2.0.0-hadoop2.7.4-java8
+  #  container_name: nodemanager2
+  #  environment:
+  #    SERVICE_PRECONDITION: "namenode:50070 datanode2:50075 resourcemanager:8088"
+  #  env_file:
+  #    - ./hadoop-hive.env
+  #  networks:
+  #    - network_hadoop
+  #nodemanager3:
+  #  image: bde2020/hadoop-nodemanager:2.0.0-hadoop2.7.4-java8
+  #  container_name: nodemanager3
+  #  environment:
+  #    SERVICE_PRECONDITION: "namenode:50070 datanode3:50075 resourcemanager:8088"
+  #  env_file:
+  #    - ./hadoop-hive.env    
+  #  networks:
+  #    - network_hadoop
+  historyserver:
+    image: bde2020/hadoop-historyserver:2.0.0-hadoop2.7.4-java8
+    container_name: historyserver
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070 datanodea:50075 resourcemanager:8088"
+    volumes:
+      - ./data/hadoop_historyserver:/hadoop/yarn/timeline
+    env_file:
+      - ./hadoop-hive.env
+    networks:
+      - network_hadoop
+  hive-server:
+    image: bde2020/hive:2.3.2
+    container_name: hive-server
+    env_file:
+      - ./hadoop-hive.env
+    environment:
+      - "HIVE_CORE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://hive-metastore/metastore"
+    ports:
+      - 10000:10000
+      - 8188:8188
+    networks:
+      - network_hadoop
+  hive-metastore:
+    image: bde2020/hive:2.3.2
+    container_name: hive-metastore
+    env_file:
+      - ./hadoop-hive.env
+    command: /opt/hive/bin/hive --service metastore
+    networks:
+      - network_hadoop
+  hive-metastore-postgresql:
+    image: bde2020/hive-metastore-postgresql:2.3.0
+    container_name: postgresql
+    networks:
+      - network_hadoop
+  spark-master:
+    image: bde2020/spark-master:2.4.4-hadoop2.7
+    container_name: spark-master
+    ports:
+      - 18080:18080
+      - 8080:8080
+      - 7077:7077
+      - 4040:4040
+    env_file:
+      - ./hadoop-hive.env
+    environment:
+      - "SPARK_MASTER=spark://spark-master:7077"
+      - "ENABLE_INIT_DAEMON=false"
+      - "constraint:node==spark-master"
+#      - "HADOOP_CONF_DIR=namenode:8020/etc/hadoop"
+#      - "YARN_CONF_DIR=namenode:8020/etc/hadoop"
+    networks:
+      - network_hadoop
+  spark-worker1:
+    image: bde2020/spark-worker:2.4.4-hadoop2.7
+    container_name: spark-worker1
+    depends_on:
+      - spark-master
+    environment:
+      - "SPARK_MASTER=spark://spark-master:7077"
+      - "constraint:node==spark-master"
+    ports:
+      - 8081:8081
+    env_file:
+      - ./hadoop-hive.env
+    networks:
+      - network_hadoop
+  spark-worker2:
+    image: bde2020/spark-worker:2.4.4-hadoop2.7
+    container_name: spark-worker2
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+    ports:
+      - 8082:8081
+    env_file:
+      - ./hadoop-hive.env
+    networks:
+      - network_hadoop
+  spark-worker3:
+    image: bde2020/spark-worker:2.4.4-hadoop2.7
+    container_name: spark-worker3
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+    ports:
+      - 8083:8081
+    env_file:
+      - ./hadoop-hive.env 
+    networks:
+      - network_hadoop
+networks:
+  network_hadoop:
+    driver: bridge
